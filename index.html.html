@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>學習任務檢核區</title>
+    <!-- 引入 html2pdf.js 函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, "Microsoft JhengHei", sans-serif;
+        }
+        body {
+            background-color: #f4f6f9;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        .control-panel {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            background: #eef2f5;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            min-width: 200px;
+        }
+        .input-group label {
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .stats-panel {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        .student-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 12px;
+        }
+        .student-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            background: #fff;
+        }
+        .student-num {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #555;
+        }
+        /* 燈號狀態按鈕樣式 */
+        .status-btn {
+            width: 100%;
+            padding: 8px 0;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .status-red { background-color: #e74c3c; }
+        .status-yellow { background-color: #f39c12; }
+        .status-green { background-color: #2ecc71; }
+        
+        /* 功能按鈕樣式 */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn-csv { background-color: #27ae60; } 
+        .btn-pdf { background-color: #e67e22; } 
+        .btn-reset { background-color: #7f8c8d; }  
+
+        .pdf-header-info {
+            display: none;
+            margin-bottom: 15px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #34495e;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="control-panel">
+        <div class="input-group">
+            <label for="taskName">學習項目：</label>
+            <input type="text" id="taskName" placeholder="請輸入作業名稱（如：數學隨堂測驗）" oninput="saveData()">
+        </div>
+        <div class="input-group" style="max-width: 180px;">
+            <label for="studentCount">學生人數：</label>
+            <input type="number" id="studentCount" value="35" min="1" max="100" onchange="onCountChange()">
+        </div>
+        <div class="button-group">
+            <button class="btn btn-pdf" onclick="exportToPDF()">匯出 PDF (.pdf)</button>
+            <button class="btn btn-csv" onclick="exportToCSV()">匯出 CSV (.csv)</button>
+            <button class="btn btn-reset" onclick="resetAllStatus()">重置燈號</button>
+        </div>
+    </div>
+
+    <div id="reportArea">
+        <h1>學習任務檢核區</h1>
+        
+        <div id="pdfHeaderInfo" class="pdf-header-info">
+            <p>學習項目：<span id="pdfTaskName">未命名任務</span></p>
+            <p>紀錄時間：<span id="pdfTime"></span></p>
+        </div>
+
+        <div class="stats-panel">
+            <span style="color: #2ecc71;">已完成 (綠): <span id="greenCount">0</span></span>
+            <span style="color: #f39c12;">訂正中 (黃): <span id="yellowCount">0</span></span>
+            <span style="color: #e74c3c;">未完成 (紅): <span id="redCount">35</span></span>
+        </div>
+
+        <div class="student-grid" id="studentGrid"></div>
+    </div>
+</div>
+
+<script>
+    const STATUS_MAP = {
+        0: { text: '未完成', class: 'status-red' },
+        1: { text: '訂正中', class: 'status-yellow' },
+        2: { text: '已完成', class: 'status-green' }
+    };
+
+    let studentData = {};
+
+    const taskNameInput = document.getElementById('taskName');
+    const studentCountInput = document.getElementById('studentCount');
+    const studentGrid = document.getElementById('studentGrid');
+
+    // 頁面載入時讀取舊資料
+    window.onload = function() {
+        loadSavedData();
+        generateStudents();
+    };
+
+    // 人數變更時處理
+    function onCountChange() {
+        generateStudents();
+        saveData();
+    }
+
+    // 動態生成學生燈號卡片
+    function generateStudents() {
+        const count = parseInt(studentCountInput.value) || 0;
+        studentGrid.innerHTML = '';
+        
+        for (let i = 1; i <= count; i++) {
+            if (studentData[i] === undefined) {
+                studentData[i] = 0; 
+            }
+
+            const formattedNum = String(i).padStart(2, '0');
+            const card = document.createElement('div');
+            card.className = 'student-card';
+            
+            const currentStatus = STATUS_MAP[studentData[i]];
+
+            card.innerHTML = `
+                <div class="student-num">${formattedNum} 號</div>
+                <button class="status-btn ${currentStatus.class}" onclick="toggleStatus(${i})">
+                    ${currentStatus.text}
+                </button>
+            `;
+            studentGrid.appendChild(card);
+        }
+
+        updateStats();
+    }
+
+    // 循環切換狀態
+    function toggleStatus(studentNum) {
+        studentData[studentNum] = (studentData[studentNum] + 1) % 3;
+        generateStudents();
+        saveData(); // 切換狀態時自動儲存
+    }
+
+    // 重置所有燈號
+    function resetAllStatus() {
+        if (confirm("確定要重置所有學生的檢核狀態嗎？")) {
+            for (let key in studentData) {
+                studentData[key] = 0;
+            }
+            generateStudents();
+            saveData();
+        }
+    }
+
+    // 更新統計數據
+    function updateStats() {
+        const count = parseInt(studentCountInput.value) || 0;
+        let green = 0, yellow = 0, red = 0;
+
+        for (let i = 1; i <= count; i++) {
+            const status = studentData[i] || 0;
+            if (status === 2) green++;
+            else if (status === 1) yellow++;
+            else red++;
+        }
+
+        document.getElementById('greenCount').innerText = green;
+        document.getElementById('yellowCount').innerText = yellow;
+        document.getElementById('redCount').innerText = red;
+    }
+
+    // 儲存資料至瀏覽器 localStorage
+    function saveData() {
+        const cacheObj = {
+            taskName: taskNameInput.value,
+            studentCount: studentCountInput.value,
+            studentData: studentData
+        };
+        localStorage.setItem('taskChecklistData', JSON.stringify(cacheObj));
+    }
+
+    // 從瀏覽器 localStorage 載入資料
+    function loadSavedData() {
+        const saved = localStorage.getItem('taskChecklistData');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (parsed.taskName !== undefined) taskNameInput.value = parsed.taskName;
+                if (parsed.studentCount !== undefined) studentCountInput.value = parsed.studentCount;
+                if (parsed.studentData !== undefined) studentData = parsed.studentData;
+            } catch (e) {
+                console.error("載入紀錄失敗", e);
+            }
+        }
+    }
+
+    // 匯出 PDF
+    function exportToPDF() {
+        const taskName = taskNameInput.value.trim() || '未命名任務';
+        const now = new Date();
+        const dateTag = now.toISOString().split('T')[0];
+        const timeString = now.toLocaleString('zh-TW');
+
+        const pdfHeaderInfo = document.getElementById('pdfHeaderInfo');
+        document.getElementById('pdfTaskName').innerText = taskName;
+        document.getElementById('pdfTime').innerText = timeString;
+        
+        pdfHeaderInfo.style.display = 'block';
+
+        const element = document.getElementById('reportArea');
+        const options = {
+            margin:       10,
+            filename:     `${dateTag}_${taskName}_檢核紀錄.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(options).from(element).save().then(() => {
+            pdfHeaderInfo.style.display = 'none';
+        });
+    }
+
+    // 匯出 CSV
+    function exportToCSV() {
+        const taskName = taskNameInput.value.trim() || '未命名任務';
+        const count = parseInt(studentCountInput.value) || 0;
+        const now = new Date();
+        const timeString = now.toLocaleString('zh-TW');
+        const dateTag = now.toISOString().split('T')[0];
+
+        let csvContent = "\uFEFF";
+        csvContent += `學習項目,${taskName}\n`;
+        csvContent += `匯出時間,${timeString}\n`;
+        csvContent += `總人數,${count}\n`;
+        csvContent += `已完成,${document.getElementById('greenCount').innerText}\n`;
+        csvContent += `訂正中,${document.getElementById('yellowCount').innerText}\n`;
+        csvContent += `未完成,${document.getElementById('redCount').innerText}\n\n`;
+        
+        csvContent += "座號,狀態\n";
+        for (let i = 1; i <= count; i++) {
+            const formattedNum = String(i).padStart(2, '0');
+            const statusText = STATUS_MAP[studentData[i] || 0].text;
+            csvContent += `"${formattedNum} 號","${statusText}"\n`;
+        }
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${dateTag}_${taskName}_檢核紀錄.csv`);
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>
